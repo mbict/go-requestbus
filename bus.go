@@ -87,11 +87,7 @@ func (b *RequestBus) addHandler(requestName string, resultType string, handler a
 	}
 
 	if _, exists := handlers[resultType]; exists {
-		return BusError{
-			error:       "handler with same signature already registered",
-			RequestName: requestName,
-			ResultType:  resultType,
-		}
+		return NewBusError("handler with same signature already registered", requestName, resultType)
 	}
 	handlers[resultType] = handler
 
@@ -164,11 +160,7 @@ func (b *RequestBus) Dispatch(ctx context.Context, request any) error {
 	requestName := b.nameResolver(request)
 	handler, found := b.getHandler(requestName, "void")
 	if !found {
-		return BusError{
-			error:       "no handler found for request",
-			RequestName: requestName,
-			ResultType:  "void",
-		}
+		return NewBusError("no handler found for request", requestName, "void")
 	}
 
 	requestHandler := handler.(Handler)
@@ -194,11 +186,8 @@ func (b *RequestBus) DispatchWithResult(ctx context.Context, request any) (any, 
 	requestName := b.nameResolver(request)
 	handler, found := b.getFirstResponseHandler(requestName)
 	if !found {
-		return nil, BusError{
-			error:       "no handler found for request, could not determine result type",
-			RequestName: requestName,
-			ResultType:  "",
-		}
+		return nil, NewBusError("no handler found for request, could not determine result type", requestName, "")
+
 	}
 
 	requestHandler := handler.(ResponseHandler)
@@ -240,11 +229,7 @@ func (b *RequestBus) DispatchWithTypedResult(ctx context.Context, request any, r
 	resultType := b.typeResolver(responseType)
 	handler, found := b.getHandler(requestName, resultType)
 	if !found {
-		return nil, BusError{
-			error:       "no handler found for request",
-			RequestName: requestName,
-			ResultType:  resultType,
-		}
+		return nil, NewBusError("no handler found for request", requestName, resultType)
 	}
 
 	requestHandler := handler.(ResponseHandler)
