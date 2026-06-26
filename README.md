@@ -1,49 +1,115 @@
-# RequestBus for go
+# RequestBus for Go v2
 
-This package contains a request bus for go with some Generic handlers.
-Its main purpose is to provide a simple way to call handlers based on a request structure like in CQRS.
+A request bus for Go with generic handlers, designed to provide a simple way to dispatch requests to handlers — similar to CQRS command/query dispatch.
 
-### Example usage
+> **Requires Go 1.27+** — v2 uses generic methods on struct types, which requires Go 1.27.
 
-Register handlers
+## Installation
+
 ```go
-    type testRequest struct {}
-    
-    bus := requestbus.New()
-    
-    //register handler that only returns an error (usually used for commands in CQRS)
-    bus.RegisterHandler(func(ctx context.Context, cmd testRequest) error { return nil })
-    
-    //register handler that returns a value and an error (usually used for queries in CQRS)
-    bus.RegisterHandler(func(ctx context.Context, cmd testRequest) (int, error) { return 123, nil })
+import "github.com/mbict/go-requestbus/v2"
 ```
 
-Call the bus
+## Handler registration
+
 ```go
-    //call handler as a command (only returns an error)
-    err := bus.Dispatch(context.Background(), testRequest{})
-    
-    //call handler as a query (returns a value and an error)
-    result, err := bus.DispatchWithResult(context.Background(), testRequest{})
-    
-    //call handler with return type hint, required if multiple handlers with different return types are registered for the same request structure
-    result, err := bus.DispatchWithTypedResult(context.Background(), testRequest{}, int(0)
+type myCommand struct{}
+type myQuery  struct{}
+type myResult struct{ Value string }
+
+bus := requestbus.New()
+
+// Command handler — only returns an error
+bus.RegisterHandler(func(ctx context.Context, cmd myCommand) error {
+    return nil
+})
+
+// Query handler — returns a value and an error
+bus.RegisterResultHandler(func(ctx context.Context, q myQuery) (myResult, error) {
+    return myResult{Value: "hello"}, nil
+})
 ```
 
-Call the bus with generic helper.
-The bus needs to be passed as a context value.
+Multiple handlers for the same request type can coexist as long as their return types differ.
+
+## Dispatching
+
 ```go
-    //add the bus to the context
-    ctx := ContextWithBus(context.Background(), bus)
-    
-    //call handler as a command (only returns an error)
-    err := requestbus.Dispatch[int](ctx, testRequest{})
-    
-	//call handler as a query (returns a value and an error)
-	//Provide the expected return type as a generic type parameter.
-	//There is now no need to cast the result.
-	res, err := requestbus.DispatchWithResult[int](ctx, testRequest{})
+// Dispatch a command (void handler)
+err := bus.Dispatch(ctx, myCommand{})
+
+// Dispatch a query — query type is inferred from type parameters, return type is inferred from handler signature and is something you need to provide as a type parameter.
+result, err := bus.DispatchResult[myResult](ctx, myQuery{})
 ```
 
-### For more information
-Please check the bus_test.go file for more examples.
+## Middleware
+
+### Global middleware
+
+Applied to every `Dispatch` and `DispatchResult` call.
+
+```go
+bus.Use(func(next requestbus.ResponseHandler) requestbus.ResponseHandler {
+    return func(ctx context.Context, r any) (any, error) {
+        log.Println("before")
+        res, err := next(ctx, r)
+        log.Println("after")
+        return res, err
+    }
+})
+```
+
+Multiple calls to `Use` chain middlewares in order (first registered = outermost).
+
+### Handler-specific middleware
+
+Scoped to a single handler signature, with full type safety.
+
+```go
+// For a void (command) handler
+bus.UseForHandler[myCommand](func(next func(context.Context, myCommand) error) func(context.Context, myCommand) error {
+    return func(ctx context.Context, cmd myCommand) error {
+        log.Println("before command")
+        return next(ctx, cmd)
+    }
+})
+
+// For a result (query) handler
+bus.UseForResultHandler[myQuery, myResult](func(next func(context.Context, myQuery) (myResult, error)) func(context.Context, myQuery) (myResult, error) {
+    return func(ctx context.Context, q myQuery) (myResult, error) {
+        log.Println("before query")
+        return next(ctx, q)
+    }
+})
+```
+
+### Middleware execution order
+
+When both global and handler-specific middleware are registered:
+
+```
+global-1 → global-2 → specific-1 → specific-2 → handler
+```
+
+## Custom name / type resolvers
+
+By default the bus uses the Go type name to identify handlers. You can override this with options:
+
+```go
+bus := requestbus.New(
+    requestbus.WithNameResolver(requestbus.ReflectionNameResolver),
+    requestbus.WithTypeResolver(func(req any) string {
+        return fmt.Sprintf("%T", req)
+    }),
+)
+```
+
+Requests can also self-identify by implementing the `RequestName` interface:
+
+```go
+func (r myCommand) RequestName() string { return "my-custom-command" }
+```
+
+## More examples
+
+See [`bus_test.go`](bus_test.go) for comprehensive examples covering all features.
