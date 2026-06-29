@@ -3,6 +3,7 @@ package requestbus
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -112,6 +113,135 @@ func TestRegisterResultHandler(t *testing.T) {
 			return nil
 		})
 		assert.NoError(t, err)
+	})
+}
+
+// ── Register (wrapper) ───────────────────────────────────────────────────────
+
+func TestRegister(t *testing.T) {
+	t.Run("void handler success delegates to RegisterHandler behavior", func(t *testing.T) {
+		bus := New()
+
+		err := bus.Register(func(_ context.Context, _ testRequest) error {
+			return nil
+		})
+		assert.NoError(t, err)
+
+		handler, found := bus.getHandler(bus.nameResolver(testRequest{}), "void")
+		require.True(t, found)
+		_, ok := handler.(Handler)
+		assert.True(t, ok)
+	})
+
+	t.Run("result handler success delegates to RegisterResultHandler behavior", func(t *testing.T) {
+		bus := New()
+
+		err := bus.Register(func(_ context.Context, _ testRequest) (testResponse, error) {
+			return testResponse{Value: "ok"}, nil
+		})
+		assert.NoError(t, err)
+
+		handler, found := bus.getHandler(bus.nameResolver(testRequest{}), bus.typeResolver(testResponse{}))
+		require.True(t, found)
+		_, ok := handler.(ResponseHandler)
+		assert.True(t, ok)
+	})
+
+	t.Run("duplicate void handler returns wrapped handler signature error", func(t *testing.T) {
+		bus := New()
+		h := func(_ context.Context, _ testRequest) error { return nil }
+
+		require.NoError(t, bus.Register(h))
+		err := bus.Register(h)
+		require.Error(t, err)
+
+		assert.ErrorContains(t, err, "handler with same signature already registered")
+		assert.ErrorContains(t, err, "handlerType: `requestbus.Handler`")
+	})
+
+	t.Run("duplicate result handler returns wrapped handler signature error", func(t *testing.T) {
+		bus := New()
+		h := func(_ context.Context, _ testRequest) (testResponse, error) { return testResponse{}, nil }
+
+		require.NoError(t, bus.Register(h))
+		err := bus.Register(h)
+		require.Error(t, err)
+
+		assert.ErrorContains(t, err, "handler with same signature already registered")
+		assert.ErrorContains(t, err, "handlerType: `requestbus.ResponseHandler`")
+	})
+
+	t.Run("void and result handlers can coexist for same request type", func(t *testing.T) {
+		bus := New()
+
+		err := bus.Register(func(_ context.Context, _ testRequest) error { return nil })
+		require.NoError(t, err)
+
+		err = bus.Register(func(_ context.Context, _ testRequest) (testResponse, error) {
+			return testResponse{Value: "coexists"}, nil
+		})
+		assert.NoError(t, err)
+
+		voidHandler, hasVoid := bus.getHandler(bus.nameResolver(testRequest{}), "void")
+		resultHandler, hasResult := bus.getHandler(bus.nameResolver(testRequest{}), bus.typeResolver(testResponse{}))
+		require.True(t, hasVoid)
+		require.True(t, hasResult)
+		_, isVoidWrapped := voidHandler.(Handler)
+		_, isResultWrapped := resultHandler.(ResponseHandler)
+		assert.True(t, isVoidWrapped)
+		assert.True(t, isResultWrapped)
+	})
+
+	t.Run("invalid signatures return descriptive errors", func(t *testing.T) {
+		tests := []struct {
+			name              string
+			handler           any
+			exactFirstLine    string
+			containsFragments []string
+		}{
+			{
+				name:           "non function",
+				handler:        42,
+				exactFirstLine: "unsupported handler signature, expecting a callback function: handlerType: `int`",
+			},
+			{
+				name:              "invalid number of arguments",
+				handler:           func(_ context.Context) error { return nil },
+				containsFragments: []string{"unsupported handler signature, invalid number of arguments", "handlerType: `func(context.Context) error`"},
+			},
+			{
+				name:              "first argument is not context.Context",
+				handler:           func(_ testRequest, _ testRequest) error { return nil },
+				containsFragments: []string{"unsupported handler signature, first argument should be a context.Context", "handlerType: `func(requestbus.testRequest, requestbus.testRequest) error`"},
+			},
+			{
+				name:              "invalid number of return types",
+				handler:           func(_ context.Context, _ testRequest) {},
+				containsFragments: []string{"unsupported handler signature, invalid number of return types", "handlerType: `func(context.Context, requestbus.testRequest)`"},
+			},
+			{
+				name:              "last return type must implement error",
+				handler:           func(_ context.Context, _ testRequest) (testResponse, int) { return testResponse{}, 0 },
+				containsFragments: []string{"unsupported handler signature, last return type should be an implementation of the error interface", "handlerType: `func(context.Context, requestbus.testRequest) (requestbus.testResponse, int)`"},
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				bus := New()
+				err := bus.Register(tt.handler)
+				require.Error(t, err)
+
+				if tt.exactFirstLine != "" {
+					firstLine := strings.SplitN(err.Error(), "\n", 2)[0]
+					assert.Equal(t, tt.exactFirstLine, firstLine)
+				}
+
+				for _, fragment := range tt.containsFragments {
+					assert.ErrorContains(t, err, fragment)
+				}
+			})
+		}
 	})
 }
 

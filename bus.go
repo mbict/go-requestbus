@@ -38,6 +38,76 @@ func New(options ...Option) *RequestBus {
 	return bus
 }
 
+// Register registers a handler for a given request type, this is an genric
+// The handler should be a function with one of the following signatures:
+// func(ctx context.Context, request <type as request>) error
+// func(ctx context.Context, request <type as request>) (<type for result>, error)
+func (b *RequestBus) Register(h any) error {
+	t := reflect.TypeOf(h)
+	if !(t.Kind() == reflect.Func) {
+		return fmt.Errorf("unsupported handler signature, expecting a callback function: handlerType: `%s`\n%s", reflect.TypeOf(h).String(), stackTrace(1))
+	}
+
+	if t.NumIn() != 2 {
+		return fmt.Errorf("unsupported handler signature, invalid number of arguments: handlerType: `%s`\n%s", reflect.TypeOf(h).String(), stackTrace(1))
+	}
+
+	if !t.In(0).Implements(reflect.TypeOf((*context.Context)(nil)).Elem()) {
+		return fmt.Errorf("unsupported handler signature, first argument should be a context.Context: handlerType: `%s`\n%s", reflect.TypeOf(h).String(), stackTrace(1))
+	}
+	reqestType := b.nameResolver(reflect.New(t.In(1)).Elem().Interface())
+
+	if t.NumOut() < 1 || t.NumOut() > 2 {
+		return fmt.Errorf("unsupported handler signature, invalid number of return types: handlerType: `%s`\n%s", reflect.TypeOf(h).String(), stackTrace(1))
+	}
+
+	errorType := reflect.TypeOf((*error)(nil)).Elem()
+	lastResultType := t.Out(t.NumOut() - 1)
+	if !lastResultType.Implements(errorType) {
+		return fmt.Errorf("unsupported handler signature, last return type should be an implementation of the error interface: handlerType: `%s`\n%s", reflect.TypeOf(h).String(), stackTrace(1))
+	}
+
+	resultType := "void"
+	if t.NumOut() == 2 {
+		resultType = b.typeResolver(reflect.New(t.Out(0)).Elem().Interface())
+	}
+
+	if t.NumOut() >= 2 {
+		return b.addHandler(reqestType, resultType, wrapResultHandler(h))
+	}
+	return b.addHandler(reqestType, resultType, wrapHandler(h))
+}
+
+func wrapResultHandler(handler any) ResponseHandler {
+	handlerFunc := reflect.ValueOf(handler)
+	return func(ctx context.Context, request any) (any, error) {
+		results := handlerFunc.Call([]reflect.Value{
+			reflect.ValueOf(ctx),
+			reflect.ValueOf(request),
+		})
+
+		if results[1].IsNil() {
+			return results[0].Interface(), nil
+		}
+		return results[0].Interface(), results[1].Interface().(error)
+	}
+}
+
+func wrapHandler(handler any) Handler {
+	handlerFunc := reflect.ValueOf(handler)
+	return func(ctx context.Context, request any) error {
+		results := handlerFunc.Call([]reflect.Value{
+			reflect.ValueOf(ctx),
+			reflect.ValueOf(request),
+		})
+
+		if results[0].IsNil() {
+			return nil
+		}
+		return results[0].Interface().(error)
+	}
+}
+
 func (b *RequestBus) RegisterHandler[I any](h func(context.Context, I) error) error {
 	var in I
 	requestType := b.nameResolver(in)
