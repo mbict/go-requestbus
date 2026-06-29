@@ -3,6 +3,8 @@ package requestbus
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 )
 
 type Middleware[I any] func(next func(ctx context.Context, q I) error) func(ctx context.Context, q I) error
@@ -62,8 +64,7 @@ func (b *RequestBus) addHandler(requestName string, resultType string, handler a
 	}
 
 	if _, exists := handlers[resultType]; exists {
-		return errors.New("handler with same signature already registered")
-		//return NewBusError("handler with same signature already registered", requestName, resultType)
+		return fmt.Errorf("handler with same signature already registered: requestName: `%s`, resultType: `%s`, handlerType: `%s`\n%s", requestName, resultType, reflect.TypeOf(handler).String(), stackTrace(1))
 	}
 	handlers[resultType] = handler
 
@@ -157,13 +158,12 @@ func (b *RequestBus) Dispatch[I any](ctx context.Context, request I) error {
 	requestName := b.nameResolver(request)
 	handler, found := b.getHandler(requestName, "void")
 	if !found {
-		return errors.New("handler not found for signature")
-		//return NewBusError("no handler found for request", requestName, "void")
+		return fmt.Errorf("handler not found for signature: requestName: `%s`\n%s", requestName, stackTrace(1))
 	}
 
 	requestHandler, ok := handler.(func(context.Context, I) error)
 	if !ok {
-		return errors.New("cannot dispatch request, handler signature not compatible")
+		return fmt.Errorf("cannot dispatch request, handler signature not compatible: requestName: `%s`, handlerType: `%s`\n%s", requestName, reflect.TypeOf(handler).String(), stackTrace(1))
 	}
 
 	//apply global middleware
@@ -201,13 +201,12 @@ func (b *RequestBus) DispatchResult[O, I any](ctx context.Context, request I) (O
 	requestName := b.nameResolver(request)
 	handler, found := b.getFirstResponseHandler(requestName)
 	if !found {
-		return result, errors.New("handler not found for signature")
-		//NewBusError("no handler found for request, could not determine result type", requestName, "")
+		return result, fmt.Errorf("handler not found for signature: requestName: `%s`\n%s", requestName, stackTrace(1))
 	}
 
 	requestHandler, ok := handler.(func(context.Context, I) (O, error))
 	if !ok {
-		return result, errors.New("cannot dispatch request, handler signature not compatible")
+		return result, fmt.Errorf("cannot dispatch request, handler signature not compatible: requestName: `%s`, handlerType: `%s`\n%s", requestName, reflect.TypeOf(handler).String(), stackTrace(1))
 	}
 
 	//apply global middleware
