@@ -129,7 +129,7 @@ func TestRegister(t *testing.T) {
 
 		handler, found := bus.getHandler(bus.nameResolver(testRequest{}), "void")
 		require.True(t, found)
-		_, ok := handler.(Handler)
+		_, ok := handler.(func(context.Context, testRequest) error)
 		assert.True(t, ok)
 	})
 
@@ -143,7 +143,7 @@ func TestRegister(t *testing.T) {
 
 		handler, found := bus.getHandler(bus.nameResolver(testRequest{}), bus.typeResolver(testResponse{}))
 		require.True(t, found)
-		_, ok := handler.(ResponseHandler)
+		_, ok := handler.(func(context.Context, testRequest) (testResponse, error))
 		assert.True(t, ok)
 	})
 
@@ -156,7 +156,7 @@ func TestRegister(t *testing.T) {
 		require.Error(t, err)
 
 		assert.ErrorContains(t, err, "handler with same signature already registered")
-		assert.ErrorContains(t, err, "handlerType: `requestbus.Handler`")
+		assert.ErrorContains(t, err, "handlerType: `func(context.Context, requestbus.testRequest) error`")
 	})
 
 	t.Run("duplicate result handler returns wrapped handler signature error", func(t *testing.T) {
@@ -168,7 +168,7 @@ func TestRegister(t *testing.T) {
 		require.Error(t, err)
 
 		assert.ErrorContains(t, err, "handler with same signature already registered")
-		assert.ErrorContains(t, err, "handlerType: `requestbus.ResponseHandler`")
+		assert.ErrorContains(t, err, "handlerType: `func(context.Context, requestbus.testRequest) (requestbus.testResponse, error)`")
 	})
 
 	t.Run("void and result handlers can coexist for same request type", func(t *testing.T) {
@@ -186,8 +186,8 @@ func TestRegister(t *testing.T) {
 		resultHandler, hasResult := bus.getHandler(bus.nameResolver(testRequest{}), bus.typeResolver(testResponse{}))
 		require.True(t, hasVoid)
 		require.True(t, hasResult)
-		_, isVoidWrapped := voidHandler.(Handler)
-		_, isResultWrapped := resultHandler.(ResponseHandler)
+		_, isVoidWrapped := voidHandler.(func(context.Context, testRequest) error)
+		_, isResultWrapped := resultHandler.(func(context.Context, testRequest) (testResponse, error))
 		assert.True(t, isVoidWrapped)
 		assert.True(t, isResultWrapped)
 	})

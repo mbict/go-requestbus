@@ -21,8 +21,8 @@ func TestDefaultTypeResolver(t *testing.T) {
 }
 
 func TestReflectionNameResolver(t *testing.T) {
-	assert.Equal(t, "github.com/mbict/go-requestbus/testRequest", ReflectionNameResolver(testRequest{}))
-	assert.Equal(t, "github.com/mbict/go-requestbus/testRequestWithName", ReflectionNameResolver(testRequestWithName{}))
+	assert.Equal(t, "github.com/mbict/go-requestbus/v2/testRequest", ReflectionNameResolver(testRequest{}))
+	assert.Equal(t, "github.com/mbict/go-requestbus/v2/testRequestWithName", ReflectionNameResolver(testRequestWithName{}))
 	assert.Equal(t, "/int", ReflectionNameResolver(int(0)))
 	assert.Equal(t, "/*int", ReflectionNameResolver((*int)(nil)))
 }

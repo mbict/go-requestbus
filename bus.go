@@ -78,34 +78,52 @@ func (b *RequestBus) Register(h any) error {
 	return b.addHandler(reqestType, resultType, wrapHandler(h))
 }
 
-func wrapResultHandler(handler any) ResponseHandler {
-	handlerFunc := reflect.ValueOf(handler)
-	return func(ctx context.Context, request any) (any, error) {
-		results := handlerFunc.Call([]reflect.Value{
-			reflect.ValueOf(ctx),
-			reflect.ValueOf(request),
-		})
+func wrapResultHandler(handler any) any {
+	handlerType := reflect.TypeOf(handler)
+	ctxType := reflect.TypeFor[context.Context]()
+	errType := reflect.TypeFor[error]()
+	inputType := handlerType.In(1)
+	outputType := handlerType.Out(0)
 
-		if results[1].IsNil() {
-			return results[0].Interface(), nil
-		}
-		return results[0].Interface(), results[1].Interface().(error)
-	}
+	fnType := reflect.FuncOf(
+		[]reflect.Type{
+			ctxType,
+			inputType,
+		},
+		[]reflect.Type{
+			outputType,
+			errType,
+		},
+		false,
+	)
+
+	handlerFunc := reflect.ValueOf(handler)
+	return reflect.MakeFunc(fnType, func(args []reflect.Value) []reflect.Value {
+		return handlerFunc.Call(args)
+	}).Interface()
 }
 
-func wrapHandler(handler any) Handler {
-	handlerFunc := reflect.ValueOf(handler)
-	return func(ctx context.Context, request any) error {
-		results := handlerFunc.Call([]reflect.Value{
-			reflect.ValueOf(ctx),
-			reflect.ValueOf(request),
-		})
+func wrapHandler(handler any) any {
+	handlerType := reflect.TypeOf(handler)
+	ctxType := reflect.TypeFor[context.Context]()
+	errType := reflect.TypeFor[error]()
+	inputType := handlerType.In(1)
 
-		if results[0].IsNil() {
-			return nil
-		}
-		return results[0].Interface().(error)
-	}
+	fnType := reflect.FuncOf(
+		[]reflect.Type{
+			ctxType,
+			inputType,
+		},
+		[]reflect.Type{
+			errType,
+		},
+		false,
+	)
+
+	handlerFunc := reflect.ValueOf(handler)
+	return reflect.MakeFunc(fnType, func(args []reflect.Value) []reflect.Value {
+		return handlerFunc.Call(args)
+	}).Interface()
 }
 
 func (b *RequestBus) RegisterHandler[I any](h func(context.Context, I) error) error {
