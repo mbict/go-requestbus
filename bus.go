@@ -306,10 +306,21 @@ func (b *RequestBus) DispatchResult[O, I any](ctx context.Context, request I) (O
 					return h(ctx, request)
 				},
 			)(ctx, request)
-			return res.(O), err
+			return resultAs[O](res, err)
 		}
 	}
 	return requestHandler(ctx, request)
+}
+
+// resultAs converts a middleware chain's result back to O. A middleware that
+// rejects a request (validation, authorization) returns a nil result with its
+// error, which must not panic; a successful chain must yield an O.
+func resultAs[O any](res any, err error) (O, error) {
+	out, ok := res.(O)
+	if err != nil || ok {
+		return out, err
+	}
+	return out, fmt.Errorf("middleware returned a result of type `%T`, expected `%s`", res, reflect.TypeFor[O]())
 }
 
 func (b *RequestBus) getFirstResponseHandler(requestName string) (any, bool) {
