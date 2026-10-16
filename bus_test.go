@@ -1236,3 +1236,34 @@ func Test_DispatchResultCanInferTypeRequest(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "result", res)
 }
+
+func TestDispatchResult_MiddlewareShortCircuit(t *testing.T) {
+	type query struct{}
+	type result struct{ N int }
+	rejected := errors.New("rejected")
+
+	t.Run("error with nil result returns the zero result and the error", func(t *testing.T) {
+		b := New()
+		b.Use(func(ResponseHandler) ResponseHandler {
+			return func(context.Context, any) (any, error) { return nil, rejected }
+		})
+		require.NoError(t, b.Register(func(context.Context, query) (result, error) { return result{N: 1}, nil }))
+
+		got, err := b.DispatchResult[result](context.Background(), query{})
+
+		require.ErrorIs(t, err, rejected)
+		require.Equal(t, result{}, got)
+	})
+
+	t.Run("success with a wrong result type is an error, not a panic", func(t *testing.T) {
+		b := New()
+		b.Use(func(ResponseHandler) ResponseHandler {
+			return func(context.Context, any) (any, error) { return "not a result", nil }
+		})
+		require.NoError(t, b.Register(func(context.Context, query) (result, error) { return result{N: 1}, nil }))
+
+		_, err := b.DispatchResult[result](context.Background(), query{})
+
+		require.ErrorContains(t, err, "expected")
+	})
+}
